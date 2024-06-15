@@ -3,6 +3,7 @@
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::fmt;
+use std::slice::Iter;
 
 //Game: Canasta
 //Util Functions
@@ -92,6 +93,25 @@ impl Card {
             Card::King => 10,
             Card::Ace => 20,
         }
+    }
+    fn iterator() -> Iter<'static, Card> {
+        static CARDS: [Card; 14] = [
+            Card::Joker,
+            Card::Two,
+            Card::Three,
+            Card::Four,
+            Card::Five,
+            Card::Six,
+            Card::Seven,
+            Card::Eight,
+            Card::Nine,
+            Card::Ten,
+            Card::Jack,
+            Card::Queen,
+            Card::King,
+            Card::Ace,
+        ];
+        CARDS.iter()
     }
 }
 
@@ -469,27 +489,32 @@ struct Game {
     finished: bool,
     frozen: bool,
     turn: TurnCounter,
-    drawn: bool,
     curr_player_drawn: bool,
 }
 impl Game {
-    fn new(teams_count: u8, players_per_team: u8, decks: u8) -> Game {
+    fn new(teams_count: u8, players_per_team: u8, decks: u8, hand_size: u8) -> Game {
         let mut draw_pile = DrawPile::new(decks);
         draw_pile.shuffle();
         let mut players: Vec<Player> = Vec::new();
         for _ in 0..(players_per_team * teams_count) {
-            players.push(Player::new(players_per_team * teams_count))
+            let mut player: Player = Player::new(players_per_team * teams_count);
+            for _ in 0..hand_size {
+                player.hand.add(draw_pile.draw().unwrap(), 1);
+            }
+            players.push(player);
         }
+        let mut discard_pile: Vec<Card> = Vec::new();
+        let up_card: Card = draw_pile.draw().unwrap();
+        discard_pile.push(up_card);
         Self {
             draw_pile: draw_pile,
-            discard_pile: Vec::new(),
+            discard_pile: discard_pile,
             players: players,
             teams_count: teams_count,
             players_per_team: players_per_team,
             finished: false,
-            frozen: false,
+            frozen: (up_card == Card::Joker || up_card == Card::Two),
             turn: TurnCounter::new(players_per_team * teams_count),
-            drawn: false,
             curr_player_drawn: false,
         }
     }
@@ -507,30 +532,31 @@ impl Game {
     fn get_curr_player(&self) -> &Player {
         &self.players[self.turn.get() as usize]
     }
+    fn get_curr_player_mut(&mut self) -> &mut Player {
+        &mut self.players[self.turn.get() as usize]
+    }
     fn check_legal(&self, play: Play) -> bool {
         let player: &Player = self.get_curr_player();
         let hand: &Hand = &player.hand;
-        let hand_size : u8 = hand.get_hand_size();
+        let hand_size: u8 = hand.get_hand_size();
         let board: &Board = &player.board;
         match play {
             Play::GoOut => {
-                self.drawn
+                self.curr_player_drawn
                     && board.get_num_canastas() >= 2
                     && hand_size - hand.get(Card::Three) == 1
                     && (hand.get(Card::Three) >= 3 || hand.get(Card::Three) == 0)
             }
             Play::PickupPile(subset_wild) => {
                 let top_card = self.discard_pile[self.discard_pile.len() - 1];
-                if self.drawn {
+                if self.curr_player_drawn {
                     return false;
                 }
                 if self.discard_pile.len() == 0 {
                     return false;
                 }
                 if let Some(_stack) = board.get(top_card) {
-                    if hand_size + (self.discard_pile.len() as u8) - 1 >= 2
-                        && !self.frozen
-                    {
+                    if hand_size + (self.discard_pile.len() as u8) - 1 >= 2 && !self.frozen {
                         return true;
                     }
                 }
@@ -550,49 +576,212 @@ impl Game {
             }
             Play::PlaceWild(subset_card, wild) => {
                 let card: Card = Card::from(subset_card);
-                if !self.drawn {
+                if !self.curr_player_drawn {
                     return false;
                 }
                 if hand_size <= 2 && board.get_num_canastas() < 2 {
                     if board.get_num_canastas() == 1 {
                         if let Some(stack) = board.get(card) {
                             if stack.get_total_count() == 6 {
-                                return hand_size == 2 && hand.get(Card::from(wild)) >= 1 && stack.twos + stack.jokers + 1 <= stack.card_count;
+                                return hand_size == 2
+                                    && hand.get(Card::from(wild)) >= 1
+                                    && stack.twos + stack.jokers + 1 <= stack.card_count;
                             }
                         }
                     }
                     return false;
                 }
-                if let Some(stack) = board.get(card) { 
+                if let Some(stack) = board.get(card) {
                     if hand.get(Card::from(wild)) >= 1 {
                         return stack.twos + stack.jokers + 1 <= stack.card_count;
                     }
                 }
                 false
             }
-            Play::Draw => !self.drawn,
+            Play::Draw => !self.curr_player_drawn,
             Play::Discard(card) => {
-                if !self.drawn {
+                if !self.curr_player_drawn {
                     return false;
                 }
                 if hand.get(card) == 0 {
                     return false;
                 }
                 board.get_num_canastas() >= 2 || hand_size > 1
-            },
+            }
             Play::Play(subset_card) => {
-                let card : Card = Card::from(subset_card);
-                if hand.get(card) == 0 || !self.drawn || hand_size == 1 || (hand_size == 2 && board.get_num_canastas() < 2 && !(board.get_num_canastas() == 1 && board.get(card).is_some() && board.get(card).unwrap().get_total_count() == 6)) {
+                let card: Card = Card::from(subset_card);
+                if hand.get(card) == 0
+                    || !self.curr_player_drawn
+                    || hand_size == 1
+                    || (hand_size == 2
+                        && board.get_num_canastas() < 2
+                        && !(board.get_num_canastas() == 1
+                            && board.get(card).is_some()
+                            && board.get(card).unwrap().get_total_count() == 6))
+                {
                     return false;
                 }
                 if board.get(card).is_some() {
                     return true;
                 }
-                if hand.get(card) >= 3 || (hand.get(card) == 2 && hand.get(Card::Joker) + hand.get(Card::Two) + hand.get(Card::Three) >= 1) {
+                if hand.get(card) >= 3
+                    || (hand.get(card) == 2
+                        && hand.get(Card::Joker) + hand.get(Card::Two) + hand.get(Card::Three) >= 1)
+                {
                     return hand_size >= 5 || (hand_size >= 4 && board.get_num_canastas() >= 2);
                 }
                 false
-            },
+            }
+        }
+    }
+    fn execute_play(&mut self, play: Play) {
+        let mut knowledge_update: [u8; 14] = [0; 14];
+        let current_player_index: u8 = self.turn.get();
+        match play {
+            Play::GoOut => {
+                let mut discard_card: Option<Card> = None;
+                for card in Card::iterator() {
+                    if self.get_curr_player().hand.get(*card) == 1 {
+                        discard_card = Some(*card);
+                        break;
+                    }
+                }
+                if discard_card.is_none() {
+                    panic!("Tried to go out but didn't have a card to discard");
+                }
+                self.discard_pile.push(discard_card.unwrap());
+                self.get_curr_player_mut()
+                    .hand
+                    .remove(discard_card.unwrap(), 1);
+                knowledge_update[discard_card.unwrap().get_index()] -= 1;
+                self.turn.add();
+                self.curr_player_drawn = false;
+                if discard_card.unwrap() == Card::Joker || discard_card.unwrap() == Card::Two {
+                    self.frozen = true;
+                }
+                let num_threes: u8 = self.get_curr_player().hand.get(Card::Three);
+                self.get_curr_player_mut()
+                    .hand
+                    .remove(Card::Three, num_threes);
+                self.finished = true;
+            }
+            Play::PickupPile(subset_wild) => {
+                let wild: Card = Card::from(subset_wild);
+                self.curr_player_drawn = true;
+                let top_card: Card = self.discard_pile[self.discard_pile.len() - 1];
+                if self.get_curr_player().board.get(top_card).is_none() || self.frozen {
+                    if self.get_curr_player().hand.get(top_card) >= 2 {
+                        self.get_curr_player_mut().hand.remove(top_card, 2);
+                        knowledge_update[top_card.get_index()] -= 2;
+                        self.get_curr_player_mut().board.place_card(top_card, 3);
+                    } else {
+                        self.get_curr_player_mut().hand.remove(top_card, 1);
+                        self.get_curr_player_mut().hand.remove(wild, 1);
+                        knowledge_update[top_card.get_index()] -= 1;
+                        knowledge_update[wild.get_index()] -= 1;
+                        self.get_curr_player_mut().board.place_card(top_card, 2);
+                        if wild == Card::Joker {
+                            self.get_curr_player_mut().board.place_joker(top_card);
+                        } else {
+                            self.get_curr_player_mut().board.place_two(top_card);
+                        }
+                    }
+                } else {
+                    self.get_curr_player_mut().board.place_card(top_card, 1);
+                }
+                let mut new_cards: Vec<Card> = Vec::new();
+                for card in self.discard_pile.iter() {
+                    new_cards.push(*card);
+                    knowledge_update[card.get_index()] += 1;
+                }
+                for card in new_cards.iter() {
+                    self.get_curr_player_mut().hand.add(*card, 1);
+                }
+                self.get_curr_player_mut().hand.remove(top_card, 1);
+                knowledge_update[top_card.get_index()] -= 1;
+                self.frozen = false;
+                self.discard_pile.clear();
+            }
+            Play::PlaceWild(subset_card, subset_wild) => {
+                let card: Card = Card::from(subset_card);
+                let wild: Card = Card::from(subset_wild);
+                self.get_curr_player_mut().hand.remove(wild, 1);
+                knowledge_update[wild.get_index()] -= 1;
+                if wild == Card::Joker {
+                    self.get_curr_player_mut().board.place_joker(card);
+                } else {
+                    self.get_curr_player_mut().board.place_two(card);
+                }
+            }
+            Play::Draw => {
+                self.curr_player_drawn = true;
+                let new_card = self.draw();
+                self.get_curr_player_mut().hand.add(new_card, 1);
+                knowledge_update[new_card.get_index()] += 1;
+            }
+            Play::Discard(card) => {
+                self.get_curr_player_mut().hand.remove(card, 1);
+                knowledge_update[card.get_index()] -= 1;
+                self.discard_pile.push(card);
+                self.curr_player_drawn = false;
+                self.turn.add();
+                if card == Card::Joker || card == Card::Two {
+                    self.frozen = true;
+                }
+            }
+            Play::Play(subset_card) => {
+                let card: Card = Card::from(subset_card);
+                if self.get_curr_player().board.get(card).is_some() {
+                    self.get_curr_player_mut().board.place_card(card, 1);
+                    self.get_curr_player_mut().hand.remove(card, 1);
+                    knowledge_update[card.get_index()] -= 1;
+                } else {
+                    if self.get_curr_player().hand.get(card) >= 3 {
+                        self.get_curr_player_mut().hand.remove(card, 3);
+                        knowledge_update[card.get_index()] -= 3;
+                        self.get_curr_player_mut().board.place_card(card, 3);
+                    } else {
+                        if self.get_curr_player().hand.get(Card::Joker) >= 1 {
+                            self.get_curr_player_mut().hand.remove(Card::Joker, 1);
+                            self.get_curr_player_mut().board.place_joker(card);
+                            knowledge_update[Card::Joker.get_index()] -= 1;
+                            self.get_curr_player_mut().hand.remove(card, 2);
+                            self.get_curr_player_mut().board.place_card(card, 2);
+                            knowledge_update[card.get_index()] -= 2;
+                        } else if self.get_curr_player().hand.get(Card::Two) >= 1 {
+                            self.get_curr_player_mut().hand.remove(Card::Two, 1);
+                            self.get_curr_player_mut().board.place_two(card);
+                            knowledge_update[Card::Two.get_index()] -= 1;
+                            self.get_curr_player_mut().hand.remove(card, 2);
+                            self.get_curr_player_mut().board.place_card(card, 2);
+                            knowledge_update[card.get_index()] -= 2;
+                        } else {
+                            panic!("Tried to play a card that a player didn't have");
+                        }
+                    }
+                }
+            }
+        }
+        for i in current_player_index + 1
+            ..current_player_index + (self.teams_count * self.players_per_team)
+        {
+            let player_index = i % (self.teams_count * self.players_per_team);
+            let mut knowledge_to_be_updated: [u8; 14] = self.players[player_index as usize]
+                .knowledge[(self.teams_count * self.players_per_team - 2 + i
+                - current_player_index
+                - 1) as usize];
+            for j in 0..14 {
+                knowledge_to_be_updated[j] += knowledge_update[j];
+                self.players[player_index as usize].knowledge[(self.teams_count
+                    * self.players_per_team
+                    - 2
+                    + i
+                    - current_player_index
+                    - 1) as usize] = knowledge_to_be_updated;
+            }
+        }
+        if self.players[current_player_index as usize].hand.is_empty() {
+            self.finished = true;
         }
     }
 }
