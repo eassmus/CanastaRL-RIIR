@@ -84,11 +84,11 @@ fn main() {
     const TEAMS_COUNT: u8 = 2;
     const NUM_EPISODES: u32 = 1000;
     let initial_state = Arc::new(Mutex::new(GameState {
-        game: canastautil::Game::new(PLAYERS_PER_TEAM, TEAMS_COUNT, 2, 13),
+        game: canastautil::Game::new(PLAYERS_PER_TEAM, TEAMS_COUNT, 2, 15),
     }));
-    let mut done: Arc<Mutex<[bool; (PLAYERS_PER_TEAM * TEAMS_COUNT) as usize]>> = Arc::new(
-        Mutex::new([false; (PLAYERS_PER_TEAM * TEAMS_COUNT) as usize]),
-    );
+    let done: Arc<Mutex<[bool; (PLAYERS_PER_TEAM * TEAMS_COUNT) as usize]>> = Arc::new(Mutex::new(
+        [false; (PLAYERS_PER_TEAM * TEAMS_COUNT) as usize],
+    ));
     let mut handles: Vec<thread::JoinHandle<()>> = Vec::new();
     for handle_id in 0..PLAYERS_PER_TEAM * TEAMS_COUNT {
         let agent_intial_state = Arc::clone(&initial_state);
@@ -100,7 +100,7 @@ fn main() {
                 160,
                 51,
                 128,
-            >::new(0.9, 1e-3);
+            >::new(1.0, 0.2);
             for ep in 1..NUM_EPISODES + 1 {
                 let mut agent = canastautil::CanastaAgent {
                     state: Arc::clone(&agent_intial_state),
@@ -124,16 +124,18 @@ fn main() {
                         }
                         out
                     } {
-                        thread::sleep(std::time::Duration::from_millis(5));
+                        thread::sleep(std::time::Duration::from_nanos(1));
                     }
-                    agent_intial_state.lock().unwrap().game = canastautil::Game::new(1, 2, 2, 13);
+                    let mut state = agent_intial_state.lock().unwrap();
+                    println!("{:?}, {}", state.game.get_scores(), state.game.turn.total_turns);
+                    state.game = canastautil::Game::new(1, 2, 2, 15);
                     let mut done_lock = done_clone.lock().unwrap();
                     for i in 0..(PLAYERS_PER_TEAM * TEAMS_COUNT) as usize {
                         done_lock[i] = false;
                     }
                 }
                 while done_clone.lock().unwrap()[agent_num as usize] == true {
-                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    std::thread::sleep(std::time::Duration::from_nanos(1));
                 }
             }
         });

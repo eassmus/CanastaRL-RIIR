@@ -8,6 +8,8 @@ use std::slice::Iter;
 use std::sync::{Arc, Mutex};
 extern crate rand;
 
+const DEBUG : bool = true;
+
 //Game: Canasta
 //Util Functions
 //Playing without red threes
@@ -136,6 +138,43 @@ impl Card {
             Card::Queen => 11,
             Card::King => 12,
             Card::Ace => 13,
+        }
+    }
+    fn from_index(i: usize) -> Card {
+        match i {
+            0 => Card::Joker,
+            1 => Card::Two,
+            2 => Card::Three,
+            3 => Card::Four,
+            4 => Card::Five,
+            5 => Card::Six,
+            6 => Card::Seven,
+            7 => Card::Eight,
+            8 => Card::Nine,
+            9 => Card::Ten,
+            10 => Card::Jack,
+            11 => Card::Queen,
+            12 => Card::King,
+            13 => Card::Ace,
+            _ => panic!("Invalid card index"),
+        }
+    }
+    fn get_simple_string(&self) -> &str {
+        match self {
+            Card::Joker => "J",
+            Card::Two => "2",
+            Card::Three => "3",
+            Card::Four => "4",
+            Card::Five => "5",
+            Card::Six => "6",
+            Card::Seven => "7",
+            Card::Eight => "8",
+            Card::Nine => "9",
+            Card::Ten => "10",
+            Card::Jack => "J",
+            Card::Queen => "Q",
+            Card::King => "K",
+            Card::Ace => "A",
         }
     }
     fn get_value(&self) -> u16 {
@@ -349,10 +388,10 @@ struct BoardStack {
 impl BoardStack {
     fn new(card_type: Card, jokers: u8, twos: u8, card_count: u8) -> BoardStack {
         Self {
-            card_type,
-            jokers,
-            twos,
-            card_count,
+            card_type: card_type,
+            jokers: jokers,
+            twos: twos,
+            card_count: card_count,
         }
     }
 
@@ -389,6 +428,7 @@ impl BoardStack {
 struct Board {
     piles: [Option<BoardStack>; 14],
     down: bool,
+    went_out: bool,
 }
 
 impl Board {
@@ -396,6 +436,7 @@ impl Board {
         Self {
             piles: [None; 14],
             down: false,
+            went_out : false,
         }
     }
     fn get_score(&self) -> u16 {
@@ -412,6 +453,9 @@ impl Board {
                 }
             }
         }
+        if self.went_out {
+            score += 100;
+        }
         score
     }
     fn get(&self, card: Card) -> Option<BoardStack> {
@@ -423,8 +467,13 @@ impl Board {
     fn place_card(&mut self, card: Card, count: u8) {
         self.down = true;
         match self.piles[card.get_index()] {
-            Some(mut pile) => {
-                pile.card_count += count;
+            Some(pile) => {
+                self.piles[card.get_index()] = Some(BoardStack {
+                    card_type: card,
+                    jokers: pile.jokers,
+                    twos: pile.twos,
+                    card_count: pile.card_count + count,
+                })
             }
             None => {
                 self.piles[card.get_index()] = Some(BoardStack {
@@ -438,8 +487,13 @@ impl Board {
     }
     fn place_joker(&mut self, card: Card) {
         match self.piles[card.get_index()] {
-            Some(mut pile) => {
-                pile.jokers += 1;
+            Some(pile) => {
+                self.piles[card.get_index()] = Some(BoardStack {
+                    card_type: card,
+                    jokers: pile.jokers + 1,
+                    twos: pile.twos,
+                    card_count: pile.card_count,
+                })
             }
             None => {
                 self.piles[card.get_index()] = Some(BoardStack {
@@ -453,8 +507,13 @@ impl Board {
     }
     fn place_two(&mut self, card: Card) {
         match self.piles[card.get_index()] {
-            Some(mut pile) => {
-                pile.twos += 1;
+            Some(pile) => {
+                self.piles[card.get_index()] = Some(BoardStack {
+                    card_type: card,
+                    jokers: pile.jokers,
+                    twos: pile.twos + 1,
+                    card_count: pile.card_count,
+                })
             }
             None => {
                 self.piles[card.get_index()] = Some(BoardStack {
@@ -479,9 +538,35 @@ impl Board {
     }
 }
 
+impl fmt::Display for Board {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut output : Vec<(String, u8, u8, u8, bool)> = Vec::new();
+        for i in 0..14 {
+            if let Some(stack) = self.piles[i] {
+                let card = Card::from_index(i);
+                output.push(((*card.get_simple_string()).to_string(), stack.card_count, stack.jokers, stack.twos, stack.is_canasta()));
+            }
+        }
+        write!(f, "{:?}", output)
+    }
+}
+
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 struct Hand {
     hand: [u8; 14],
+}
+
+impl fmt::Display for Hand {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut cards : Vec<String> = Vec::new();
+        for i in 0..14 {
+            for _ in 0..self.hand[i] {
+                let card = Card::from_index(i);
+                cards.push((*card.get_simple_string()).to_string());
+            }
+        }
+        write!(f, "{:?}", cards)
+    }
 }
 
 impl Hand {
@@ -569,7 +654,7 @@ impl TurnCounter {
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
-pub struct Game<const players_per_team: u8, const teams_count: u8> {
+pub struct Game<const PLAYERS_PER_TEAM: u8, const TEAMS_COUNT: u8> {
     draw_pile: DrawPile,
     discard_pile: Vec<Card>,
     players: Vec<Player>,
@@ -769,6 +854,7 @@ impl Game<1, 2> {
                     .hand
                     .remove(Card::Three, num_threes);
                 self.finished = true;
+                self.get_curr_player_mut().board.went_out = true;
             }
             Play::PickupPile(subset_wild) => {
                 let wild: Card = Card::from(subset_wild);
@@ -892,13 +978,14 @@ impl Game<1, 2> {
         }
         if self.players[current_player_index as usize].hand.is_empty() {
             self.finished = true;
+            self.get_curr_player_mut().board.went_out = true;
         }
     }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone)]
-pub struct GameState<const players_per_team: u8, const teams_count: u8> {
-    pub game: Game<players_per_team, teams_count>,
+pub struct GameState<const PLAYERS_PER_TEAM: u8, const TEAMS_COUNT: u8> {
+    pub game: Game<PLAYERS_PER_TEAM, TEAMS_COUNT>,
 }
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub struct Action {
@@ -981,8 +1068,8 @@ impl From<GameState<1, 2>> for [f32; 160] {
     }
 }
 
-pub struct CanastaAgent<const players_per_team: u8, const teams_count: u8> {
-    pub state: Arc<Mutex<GameState<players_per_team, teams_count>>>,
+pub struct CanastaAgent<const PLAYERS_PER_TEAM: u8, const TEAMS_COUNT: u8> {
+    pub state: Arc<Mutex<GameState<PLAYERS_PER_TEAM, TEAMS_COUNT>>>,
     pub player_id: u8,
 }
 impl Agent<GameState<1, 2>> for CanastaAgent<1, 2> {
@@ -994,11 +1081,12 @@ impl Agent<GameState<1, 2>> for CanastaAgent<1, 2> {
                 return state.clone();
             }
             if state.game.turn.get() == self.player_id {
+                //println!("{}", i);
                 return state.clone();
             } else {
                 i += 1;
                 drop(state);
-                std::thread::sleep(std::time::Duration::from_millis(20));
+                std::thread::sleep(std::time::Duration::from_nanos(1));
             }
         }
     }
@@ -1006,6 +1094,20 @@ impl Agent<GameState<1, 2>> for CanastaAgent<1, 2> {
         let mut state = self.state.lock().unwrap();
         if state.game.finished {
             return;
+        }
+        if DEBUG {
+            println!("Turn: {}", state.game.turn.get());
+            if state.game.discard_pile.len() > 0 {  
+                println!("Top Discard Pile: {}", state.game.discard_pile[state.game.discard_pile.len()-1]);
+            } else {
+                println!("Top Discard Pile: None");
+            }
+            for player in state.game.players.iter() {
+                println!("Hand: {}", player.hand);
+                println!("Board: {}", player.board);
+            }
+            println!("Action: {:?}", (*action).play);
+            println!("");
         }
         state.game.execute_play((*action).play);
     }

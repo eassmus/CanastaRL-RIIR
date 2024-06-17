@@ -8,6 +8,7 @@ use dfdx::{
 
 use canasta_rl::mdp::{Agent, State};
 use canasta_rl::strategy::{explore::ExplorationStrategy, terminate::TerminationStrategy};
+use rand::Rng;
 
 const BATCH: usize = 64;
 
@@ -18,9 +19,9 @@ type QNetwork<const STATE_SIZE: usize, const ACTION_SIZE: usize, const INNER_SIZ
 );
 
 type QNetworkDevice<const STATE_SIZE: usize, const ACTION_SIZE: usize, const INNER_SIZE: usize> = (
-    (nn::modules::Linear<STATE_SIZE, INNER_SIZE, f32, Cpu>, ReLU),
-    (nn::modules::Linear<INNER_SIZE, INNER_SIZE, f32, Cpu>, ReLU),
-    nn::modules::Linear<INNER_SIZE, ACTION_SIZE, f32, Cpu>,
+    (nn::modules::Linear<STATE_SIZE, INNER_SIZE, f32, Cuda>, ReLU),
+    (nn::modules::Linear<INNER_SIZE, INNER_SIZE, f32, Cuda>, ReLU),
+    nn::modules::Linear<INNER_SIZE, ACTION_SIZE, f32, Cuda>,
 );
 
 /// An `DQNAgentTrainer` can be trained for using a certain [Agent](mdp/trait.Agent.html). After
@@ -44,8 +45,8 @@ pub struct DQNAgentTrainer<
     gamma: f32,
     q_network: QNetworkDevice<STATE_SIZE, ACTION_SIZE, INNER_SIZE>,
     target_q_net: QNetworkDevice<STATE_SIZE, ACTION_SIZE, INNER_SIZE>,
-    sgd: Sgd<QNetworkDevice<STATE_SIZE, ACTION_SIZE, INNER_SIZE>, f32, Cpu>,
-    dev: Cpu,
+    sgd: Sgd<QNetworkDevice<STATE_SIZE, ACTION_SIZE, INNER_SIZE>, f32, Cuda>,
+    dev: Cuda,
     phantom: std::marker::PhantomData<S>,
 }
 
@@ -69,9 +70,9 @@ where
     ///
     pub fn new(
         gamma: f32,
-        learning_rate: f32,
+        learning_rate: f64,
     ) -> DQNAgentTrainer<S, STATE_SIZE, ACTION_SIZE, INNER_SIZE> {
-        let dev = AutoDevice::default();
+        let dev: Cuda = Default::default();
 
         // initialize model
         let q_net = dev.build_module::<QNetwork<STATE_SIZE, ACTION_SIZE, INNER_SIZE>, f32>();
@@ -225,7 +226,10 @@ where
 
             for i in 0..BATCH {
                 let s_t = agent.current_state().clone();
-                let action = exploration_strategy.pick_action(agent);
+                let mut action = exploration_strategy.pick_action(agent);
+                if rand::thread_rng().gen::<f32>() > 0.2 {
+                    action = self.best_action(&s_t).unwrap();   
+                }
 
                 // current action value
                 s_t_next = agent.current_state();
