@@ -4,11 +4,15 @@ use canasta_rl::mdp::{Agent, State};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::fmt;
+use std::hash::Hasher;
+use std::hash::Hash;
+use std::io::Write;
 use std::slice::Iter;
+use std::fs::OpenOptions;
 use std::sync::{Arc, Mutex};
 extern crate rand;
 
-const DEBUG : bool = true;
+const DEBUG: bool = true;
 
 //Game: Canasta
 //Util Functions
@@ -436,11 +440,17 @@ impl Board {
         Self {
             piles: [None; 14],
             down: false,
-            went_out : false,
+            went_out: false,
         }
     }
     fn get_score(&self) -> u16 {
-        let mut score: u16 = 0;
+        let mut score: u16 = {
+            if self.went_out {
+                100
+            } else {
+                0
+            }
+        };
         for stack_opt in self.piles.iter() {
             if let Some(stack) = stack_opt {
                 score += stack.get_score();
@@ -452,9 +462,6 @@ impl Board {
                     }
                 }
             }
-        }
-        if self.went_out {
-            score += 100;
         }
         score
     }
@@ -540,11 +547,17 @@ impl Board {
 
 impl fmt::Display for Board {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut output : Vec<(String, u8, u8, u8, bool)> = Vec::new();
+        let mut output: Vec<(String, u8, u8, u8, bool)> = Vec::new();
         for i in 0..14 {
             if let Some(stack) = self.piles[i] {
                 let card = Card::from_index(i);
-                output.push(((*card.get_simple_string()).to_string(), stack.card_count, stack.jokers, stack.twos, stack.is_canasta()));
+                output.push((
+                    (*card.get_simple_string()).to_string(),
+                    stack.card_count,
+                    stack.jokers,
+                    stack.twos,
+                    stack.is_canasta(),
+                ));
             }
         }
         write!(f, "{:?}", output)
@@ -558,7 +571,7 @@ struct Hand {
 
 impl fmt::Display for Hand {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut cards : Vec<String> = Vec::new();
+        let mut cards: Vec<String> = Vec::new();
         for i in 0..14 {
             for _ in 0..self.hand[i] {
                 let card = Card::from_index(i);
@@ -609,21 +622,38 @@ impl Hand {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+
+#[derive(Clone, Debug)]
 struct Player {
     hand: Hand,
-    board: Board,
+    board: Arc<Mutex<Board>>,
     knowledge: Vec<[i8; 14]>,
 }
+impl PartialEq for Player {
+    fn eq(&self, other: &Self) -> bool {
+        self.hand == other.hand
+    }
+}
+impl Eq for Player {
+    fn assert_receiver_is_total_eq(&self) {
+        assert_eq!(self, self);
+    }
+}
+impl Hash for Player {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hand.hash(state);
+        self.knowledge.hash(state);
+    }
+}
 impl Player {
-    fn new(players_count: u8) -> Player {
+    fn new(players_count: u8, board : Arc<Mutex<Board>>) -> Player {
         let mut knowledge: Vec<[i8; 14]> = Vec::new();
         for _ in 0..(players_count - 1) {
             knowledge.push([0; 14]);
         }
         Self {
             hand: Hand::new(),
-            board: Board::new(),
+            board: board,
             knowledge: knowledge,
         }
     }
@@ -653,8 +683,8 @@ impl TurnCounter {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
-pub struct Game<const PLAYERS_PER_TEAM: u8, const TEAMS_COUNT: u8> {
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Game {
     draw_pile: DrawPile,
     discard_pile: Vec<Card>,
     players: Vec<Player>,
@@ -665,13 +695,18 @@ pub struct Game<const PLAYERS_PER_TEAM: u8, const TEAMS_COUNT: u8> {
     pub turn: TurnCounter,
     curr_player_drawn: bool,
 }
-impl Game<1, 2> {
-    pub fn new(teams_count: u8, players_per_team: u8, decks: u8, hand_size: u8) -> Game<1, 2> {
+
+impl Game {
+    pub fn new(teams_count: u8, players_per_team: u8, decks: u8, hand_size: u8) -> Game {
         let mut draw_pile = DrawPile::new(decks);
         draw_pile.shuffle();
         let mut players: Vec<Player> = Vec::new();
-        for _ in 0..(players_per_team * teams_count) {
-            let mut player: Player = Player::new(players_per_team * teams_count);
+        let mut boards : Vec<Arc<Mutex<Board>>> = Vec::new();
+        for _ in 0..teams_count {
+            boards.push(Arc::new(Mutex::new(Board::new())));
+        }
+        for i in 0..(players_per_team * teams_count) {
+            let mut player: Player = Player::new(players_per_team * teams_count, boards[(i % teams_count) as usize].clone());
             for _ in 0..hand_size {
                 player.hand.add(draw_pile.draw().unwrap(), 1);
             }
@@ -718,8 +753,13 @@ impl Game<1, 2> {
                     .hand
                     .get_score() as i16;
             }
-            score += self.players[i as usize].board.get_score() as i16;
+            score += self.players[i as usize].board.lock().unwrap().get_score() as i16;
             scores.push(score);
+        }
+        for _ in 0..self.teams_count - 1 {
+            for i in 0..self.players_per_team {
+                scores.push(scores[i as usize]);
+            }
         }
         scores
     }
@@ -727,7 +767,7 @@ impl Game<1, 2> {
         let player: &Player = self.get_curr_player();
         let hand: &Hand = &player.hand;
         let hand_size: u8 = hand.get_hand_size();
-        let board: &Board = &player.board;
+        let board: &Board = &player.board.lock().unwrap();
         match play {
             Play::GoOut => {
                 self.curr_player_drawn
@@ -827,6 +867,32 @@ impl Game<1, 2> {
     pub fn execute_play(&mut self, play: Play) {
         let mut knowledge_update: [i8; 14] = [0; 14];
         let current_player_index: u8 = self.turn.get();
+        if DEBUG {
+            let mut file = OpenOptions::new()
+                .append(true)
+                .open("debug.txt").unwrap();
+            file.write_fmt(format_args!("Turn: {}, Total Turns: {}\n", self.turn.get(), self.turn.total_turns)).unwrap();
+            if self.discard_pile.len() > 0 {
+                file.write_fmt(format_args!(
+                    "Top Discard Pile: {}\n",
+                    self.discard_pile[self.discard_pile.len() - 1]
+                )).unwrap();
+            } else {
+                file.write_fmt(format_args!("Top Discard Pile: None\n")).unwrap();
+            }
+            let mut i = 0;
+            for player in self.players.iter() {
+                if i == current_player_index as usize {
+                    file.write("> ".as_bytes()).unwrap();
+                } else {
+                    file.write("  ".as_bytes()).unwrap();
+                }
+                file.write_fmt(format_args!("Hand: {}\n", player.hand)).unwrap();
+                file.write_fmt(format_args!("  Board: {}\n\n", player.board.lock().unwrap())).unwrap();
+                i += 1;
+            }
+            file.write_fmt(format_args!("Action: {:?} \n\n", play)).unwrap();
+        }
         match play {
             Play::GoOut => {
                 let mut discard_card: Option<Card> = None;
@@ -854,31 +920,31 @@ impl Game<1, 2> {
                     .hand
                     .remove(Card::Three, num_threes);
                 self.finished = true;
-                self.get_curr_player_mut().board.went_out = true;
+                self.get_curr_player_mut().board.lock().unwrap().went_out = true;
             }
             Play::PickupPile(subset_wild) => {
                 let wild: Card = Card::from(subset_wild);
                 self.curr_player_drawn = true;
                 let top_card: Card = self.discard_pile[self.discard_pile.len() - 1];
-                if self.get_curr_player().board.get(top_card).is_none() || self.frozen {
+                if self.get_curr_player().board.lock().unwrap().get(top_card).is_none() || self.frozen {
                     if self.get_curr_player().hand.get(top_card) >= 2 {
                         self.get_curr_player_mut().hand.remove(top_card, 2);
                         knowledge_update[top_card.get_index()] -= 2;
-                        self.get_curr_player_mut().board.place_card(top_card, 3);
+                        self.get_curr_player_mut().board.lock().unwrap().place_card(top_card, 3);
                     } else {
                         self.get_curr_player_mut().hand.remove(top_card, 1);
                         self.get_curr_player_mut().hand.remove(wild, 1);
                         knowledge_update[top_card.get_index()] -= 1;
                         knowledge_update[wild.get_index()] -= 1;
-                        self.get_curr_player_mut().board.place_card(top_card, 2);
+                        self.get_curr_player_mut().board.lock().unwrap().place_card(top_card, 2);
                         if wild == Card::Joker {
-                            self.get_curr_player_mut().board.place_joker(top_card);
+                            self.get_curr_player_mut().board.lock().unwrap().place_joker(top_card);
                         } else {
-                            self.get_curr_player_mut().board.place_two(top_card);
+                            self.get_curr_player_mut().board.lock().unwrap().place_two(top_card);
                         }
                     }
                 } else {
-                    self.get_curr_player_mut().board.place_card(top_card, 1);
+                    self.get_curr_player_mut().board.lock().unwrap().place_card(top_card, 1);
                 }
                 let mut new_cards: Vec<Card> = Vec::new();
                 for card in self.discard_pile.iter() {
@@ -899,9 +965,9 @@ impl Game<1, 2> {
                 self.get_curr_player_mut().hand.remove(wild, 1);
                 knowledge_update[wild.get_index()] -= 1;
                 if wild == Card::Joker {
-                    self.get_curr_player_mut().board.place_joker(card);
+                    self.get_curr_player_mut().board.lock().unwrap().place_joker(card);
                 } else {
-                    self.get_curr_player_mut().board.place_two(card);
+                    self.get_curr_player_mut().board.lock().unwrap().place_two(card);
                 }
             }
             Play::Draw => {
@@ -925,29 +991,29 @@ impl Game<1, 2> {
             }
             Play::Play(subset_card) => {
                 let card: Card = Card::from(subset_card);
-                if self.get_curr_player().board.get(card).is_some() {
-                    self.get_curr_player_mut().board.place_card(card, 1);
+                if self.get_curr_player().board.lock().unwrap().get(card).is_some() {
+                    self.get_curr_player_mut().board.lock().unwrap().place_card(card, 1);
                     self.get_curr_player_mut().hand.remove(card, 1);
                     knowledge_update[card.get_index()] -= 1;
                 } else {
                     if self.get_curr_player().hand.get(card) >= 3 {
                         self.get_curr_player_mut().hand.remove(card, 3);
                         knowledge_update[card.get_index()] -= 3;
-                        self.get_curr_player_mut().board.place_card(card, 3);
+                        self.get_curr_player_mut().board.lock().unwrap().place_card(card, 3);
                     } else {
                         if self.get_curr_player().hand.get(Card::Joker) >= 1 {
                             self.get_curr_player_mut().hand.remove(Card::Joker, 1);
-                            self.get_curr_player_mut().board.place_joker(card);
+                            self.get_curr_player_mut().board.lock().unwrap().place_joker(card);
                             knowledge_update[Card::Joker.get_index()] -= 1;
                             self.get_curr_player_mut().hand.remove(card, 2);
-                            self.get_curr_player_mut().board.place_card(card, 2);
+                            self.get_curr_player_mut().board.lock().unwrap().place_card(card, 2);
                             knowledge_update[card.get_index()] -= 2;
                         } else if self.get_curr_player().hand.get(Card::Two) >= 1 {
                             self.get_curr_player_mut().hand.remove(Card::Two, 1);
-                            self.get_curr_player_mut().board.place_two(card);
+                            self.get_curr_player_mut().board.lock().unwrap().place_two(card);
                             knowledge_update[Card::Two.get_index()] -= 1;
                             self.get_curr_player_mut().hand.remove(card, 2);
-                            self.get_curr_player_mut().board.place_card(card, 2);
+                            self.get_curr_player_mut().board.lock().unwrap().place_card(card, 2);
                             knowledge_update[card.get_index()] -= 2;
                         } else {
                             panic!("Tried to play a card that a player didn't have");
@@ -978,14 +1044,14 @@ impl Game<1, 2> {
         }
         if self.players[current_player_index as usize].hand.is_empty() {
             self.finished = true;
-            self.get_curr_player_mut().board.went_out = true;
+            self.get_curr_player_mut().board.lock().unwrap().went_out = true;
         }
     }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub struct GameState<const PLAYERS_PER_TEAM: u8, const TEAMS_COUNT: u8> {
-    pub game: Game<PLAYERS_PER_TEAM, TEAMS_COUNT>,
+    pub game: Game,
 }
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub struct Action {
@@ -996,7 +1062,34 @@ impl State for GameState<1, 2> {
     type A = Action;
     fn reward(&self) -> f64 {
         if self.game.finished {
-            return self.game.get_scores()[self.game.turn.get() as usize] as f64;
+            let mut out = self.game.get_scores()[self.game.turn.get() as usize] as f64;
+            for i in 1..self.game.teams_count {
+                out -= self.game.get_scores()[i as usize] as f64;
+            }
+            return out;
+        }
+        0.0
+    }
+    fn actions(&self) -> Vec<Action> {
+        let mut actions: Vec<Action> = Vec::new();
+        for play in Play::iterator() {
+            if self.game.check_legal(*play) {
+                actions.push(Action { play: *play });
+            }
+        }
+        actions
+    }
+}
+
+impl State for GameState<2, 2> {
+    type A = Action;
+    fn reward(&self) -> f64 {
+        if self.game.finished {
+            let mut out = self.game.get_scores()[self.game.turn.get() as usize] as f64;
+            for i in 1..self.game.teams_count {
+                out -= self.game.get_scores()[i as usize] as f64;
+            }
+            return out;
         }
         0.0
     }
@@ -1043,13 +1136,70 @@ impl From<GameState<1, 2>> for [f32; 160] {
         for i in 0..state.game.teams_count {
             for card in PlayableCardSubset::iterator() {
                 output[43 + (i as usize) * 12 + (Card::from(*card).get_index() as usize) - 3] =
-                    match state.game.players[i as usize].board.get(Card::from(*card)) {
+                    match state.game.players[i as usize].board.lock().unwrap().get(Card::from(*card)) {
                         Some(stack) => stack.get_total_count() as f32,
                         None => 0.0,
                     };
             }
             output[43 + (i as usize) * 12 + 11] =
-                state.game.players[i as usize].board.get_num_canastas() as f32;
+                state.game.players[i as usize].board.lock().unwrap().get_num_canastas() as f32;
+        }
+        let mut curr: usize = 55 + ((state.game.teams_count * 12) as usize);
+        //Hand Sizes
+        for i in 0..state.game.teams_count * state.game.players_per_team {
+            output[curr + i as usize] = state.game.players[i as usize].hand.get_hand_size() as f32;
+        }
+        curr += (state.game.teams_count * state.game.players_per_team) as usize;
+        //Knowledge
+        let knowledge = state.game.get_curr_player().knowledge.clone();
+        for i in 0..state.game.teams_count * state.game.players_per_team - 1 {
+            for j in 0..14 {
+                output[curr + (i * 14 + j) as usize] = knowledge[i as usize][j as usize] as f32;
+            }
+        }
+        output
+    }
+}
+
+impl From<GameState<2, 2>> for [f32; 190] {
+    fn from(state: GameState<2, 2>) -> Self {
+        let mut output: [f32; 190] = [0.0; 190];
+        //Discard Pile, 14 for each card, 14 for top card
+        //TODO: Fix this insane hack
+        let mut last_card: f32 = -1.0;
+        for card in state.game.discard_pile.clone() {
+            output[card.get_index()] += 1.0;
+            last_card += 1.0;
+            output[14 + card.get_index()] = last_card;
+        }
+        for i in 14..28 {
+            if output[i] == last_card {
+                output[i] = 1.0;
+            } else {
+                output[i] = 0.0;
+            }
+        }
+        //Cards in hand
+        for card in Card::iterator() {
+            output[28 + card.get_index()] = state.game.get_curr_player().hand.get(*card) as f32;
+        }
+        // Has drawn
+        if state.game.curr_player_drawn {
+            output[42] = 1.0;
+        } else {
+            output[42] = 0.0;
+        }
+        //Cards in boards + Num canastas
+        for i in 0..state.game.teams_count {
+            for card in PlayableCardSubset::iterator() {
+                output[43 + (i as usize) * 12 + (Card::from(*card).get_index() as usize) - 3] =
+                    match state.game.players[i as usize].board.lock().unwrap().get(Card::from(*card)) {
+                        Some(stack) => stack.get_total_count() as f32,
+                        None => 0.0,
+                    };
+            }
+            output[43 + (i as usize) * 12 + 11] =
+                state.game.players[i as usize].board.lock().unwrap().get_num_canastas() as f32;
         }
         let mut curr: usize = 55 + ((state.game.teams_count * 12) as usize);
         //Hand Sizes
@@ -1097,17 +1247,47 @@ impl Agent<GameState<1, 2>> for CanastaAgent<1, 2> {
         }
         if DEBUG {
             println!("Turn: {}", state.game.turn.get());
-            if state.game.discard_pile.len() > 0 {  
-                println!("Top Discard Pile: {}", state.game.discard_pile[state.game.discard_pile.len()-1]);
+            if state.game.discard_pile.len() > 0 {
+                println!(
+                    "Top Discard Pile: {}",
+                    state.game.discard_pile[state.game.discard_pile.len() - 1]
+                );
             } else {
                 println!("Top Discard Pile: None");
             }
             for player in state.game.players.iter() {
                 println!("Hand: {}", player.hand);
-                println!("Board: {}", player.board);
+                println!("Board: {}", player.board.lock().unwrap());
             }
             println!("Action: {:?}", (*action).play);
             println!("");
+        }
+        state.game.execute_play((*action).play);
+    }
+}
+
+impl Agent<GameState<2, 2>> for CanastaAgent<2, 2> {
+    fn current_state(&self) -> GameState<2, 2> {
+        let mut i = 0;
+        loop {
+            let state = self.state.lock().unwrap();
+            if state.game.finished {
+                return state.clone();
+            }
+            if state.game.turn.get() == self.player_id {
+                //println!("{}", i);
+                return state.clone();
+            } else {
+                i += 1;
+                drop(state);
+                std::thread::sleep(std::time::Duration::from_nanos(1));
+            }
+        }
+    }
+    fn take_action(&mut self, action: &Action) -> () {
+        let mut state = self.state.lock().unwrap();
+        if state.game.finished {
+            return;
         }
         state.game.execute_play((*action).play);
     }
