@@ -4,11 +4,11 @@ use canasta_rl::mdp::{Agent, State};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::fmt;
-use std::hash::Hasher;
+use std::fs::OpenOptions;
 use std::hash::Hash;
+use std::hash::Hasher;
 use std::io::Write;
 use std::slice::Iter;
-use std::fs::OpenOptions;
 use std::sync::{Arc, Mutex};
 extern crate rand;
 
@@ -24,15 +24,15 @@ const DEBUG: bool = true;
 pub enum Play {
     Discard(Card),
     Draw,
-    PickupPile(WildCardSubset),
-    PlaceWild(PlayableCardSubset, WildCardSubset),
+    PickupPile,
+    PlaceWild(PlayableCardSubset),
     Play(PlayableCardSubset),
     GoOut,
 }
 
 impl Play {
     pub fn iterator() -> Iter<'static, Play> {
-        static PLAYS: [Play; 51] = [
+        static PLAYS: [Play; 39] = [
             Play::Discard(Card::Joker),
             Play::Discard(Card::Two),
             Play::Discard(Card::Three),
@@ -48,8 +48,7 @@ impl Play {
             Play::Discard(Card::King),
             Play::Discard(Card::Ace),
             Play::GoOut,
-            Play::PickupPile(WildCardSubset::Joker),
-            Play::PickupPile(WildCardSubset::Two),
+            Play::PickupPile,
             Play::Play(PlayableCardSubset::Four),
             Play::Play(PlayableCardSubset::Five),
             Play::Play(PlayableCardSubset::Six),
@@ -61,28 +60,17 @@ impl Play {
             Play::Play(PlayableCardSubset::Queen),
             Play::Play(PlayableCardSubset::King),
             Play::Play(PlayableCardSubset::Ace),
-            Play::PlaceWild(PlayableCardSubset::Four, WildCardSubset::Joker),
-            Play::PlaceWild(PlayableCardSubset::Five, WildCardSubset::Joker),
-            Play::PlaceWild(PlayableCardSubset::Six, WildCardSubset::Joker),
-            Play::PlaceWild(PlayableCardSubset::Seven, WildCardSubset::Joker),
-            Play::PlaceWild(PlayableCardSubset::Eight, WildCardSubset::Joker),
-            Play::PlaceWild(PlayableCardSubset::Nine, WildCardSubset::Joker),
-            Play::PlaceWild(PlayableCardSubset::Ten, WildCardSubset::Joker),
-            Play::PlaceWild(PlayableCardSubset::Jack, WildCardSubset::Joker),
-            Play::PlaceWild(PlayableCardSubset::Queen, WildCardSubset::Joker),
-            Play::PlaceWild(PlayableCardSubset::King, WildCardSubset::Joker),
-            Play::PlaceWild(PlayableCardSubset::Ace, WildCardSubset::Joker),
-            Play::PlaceWild(PlayableCardSubset::Four, WildCardSubset::Two),
-            Play::PlaceWild(PlayableCardSubset::Five, WildCardSubset::Two),
-            Play::PlaceWild(PlayableCardSubset::Six, WildCardSubset::Two),
-            Play::PlaceWild(PlayableCardSubset::Seven, WildCardSubset::Two),
-            Play::PlaceWild(PlayableCardSubset::Eight, WildCardSubset::Two),
-            Play::PlaceWild(PlayableCardSubset::Nine, WildCardSubset::Two),
-            Play::PlaceWild(PlayableCardSubset::Ten, WildCardSubset::Two),
-            Play::PlaceWild(PlayableCardSubset::Jack, WildCardSubset::Two),
-            Play::PlaceWild(PlayableCardSubset::Queen, WildCardSubset::Two),
-            Play::PlaceWild(PlayableCardSubset::King, WildCardSubset::Two),
-            Play::PlaceWild(PlayableCardSubset::Ace, WildCardSubset::Two),
+            Play::PlaceWild(PlayableCardSubset::Four),
+            Play::PlaceWild(PlayableCardSubset::Five),
+            Play::PlaceWild(PlayableCardSubset::Six),
+            Play::PlaceWild(PlayableCardSubset::Seven),
+            Play::PlaceWild(PlayableCardSubset::Eight),
+            Play::PlaceWild(PlayableCardSubset::Nine),
+            Play::PlaceWild(PlayableCardSubset::Ten),
+            Play::PlaceWild(PlayableCardSubset::Jack),
+            Play::PlaceWild(PlayableCardSubset::Queen),
+            Play::PlaceWild(PlayableCardSubset::King),
+            Play::PlaceWild(PlayableCardSubset::Ace),
             Play::Draw,
         ];
         PLAYS.iter()
@@ -622,7 +610,6 @@ impl Hand {
     }
 }
 
-
 #[derive(Clone, Debug)]
 struct Player {
     hand: Hand,
@@ -646,7 +633,7 @@ impl Hash for Player {
     }
 }
 impl Player {
-    fn new(players_count: u8, board : Arc<Mutex<Board>>) -> Player {
+    fn new(players_count: u8, board: Arc<Mutex<Board>>) -> Player {
         let mut knowledge: Vec<[i8; 14]> = Vec::new();
         for _ in 0..(players_count - 1) {
             knowledge.push([0; 14]);
@@ -701,12 +688,15 @@ impl Game {
         let mut draw_pile = DrawPile::new(decks);
         draw_pile.shuffle();
         let mut players: Vec<Player> = Vec::new();
-        let mut boards : Vec<Arc<Mutex<Board>>> = Vec::new();
+        let mut boards: Vec<Arc<Mutex<Board>>> = Vec::new();
         for _ in 0..teams_count {
             boards.push(Arc::new(Mutex::new(Board::new())));
         }
         for i in 0..(players_per_team * teams_count) {
-            let mut player: Player = Player::new(players_per_team * teams_count, boards[(i % teams_count) as usize].clone());
+            let mut player: Player = Player::new(
+                players_per_team * teams_count,
+                boards[(i % teams_count) as usize].clone(),
+            );
             for _ in 0..hand_size {
                 player.hand.add(draw_pile.draw().unwrap(), 1);
             }
@@ -775,7 +765,14 @@ impl Game {
                     && hand_size - hand.get(Card::Three) == 1
                     && (hand.get(Card::Three) >= 3 || hand.get(Card::Three) == 0)
             }
-            Play::PickupPile(subset_wild) => {
+            Play::PickupPile => {
+                let subset_wild = {
+                    if self.get_curr_player().hand.get(Card::Joker) > 0 {
+                        Card::Joker
+                    } else {
+                        Card::Two
+                    }
+                };
                 if self.discard_pile.len() == 0 {
                     return false;
                 }
@@ -805,7 +802,14 @@ impl Game {
                 }
                 !self.frozen && hand.get(Card::from(subset_wild)) >= 1 && hand.get(top_card) >= 2
             }
-            Play::PlaceWild(subset_card, wild) => {
+            Play::PlaceWild(subset_card) => {
+                let wild = {
+                    if self.get_curr_player().hand.get(Card::Joker) > 0 {
+                        Card::Joker
+                    } else {
+                        Card::Two
+                    }
+                };
                 let card: Card = Card::from(subset_card);
                 if !self.curr_player_drawn {
                     return false;
@@ -868,17 +872,22 @@ impl Game {
         let mut knowledge_update: [i8; 14] = [0; 14];
         let current_player_index: u8 = self.turn.get();
         if DEBUG {
-            let mut file = OpenOptions::new()
-                .append(true)
-                .open("debug.txt").unwrap();
-            file.write_fmt(format_args!("Turn: {}, Total Turns: {}\n", self.turn.get(), self.turn.total_turns)).unwrap();
+            let mut file = OpenOptions::new().append(true).open("debug.txt").unwrap();
+            file.write_fmt(format_args!(
+                "Turn: {}, Total Turns: {}\n",
+                self.turn.get(),
+                self.turn.total_turns
+            ))
+            .unwrap();
             if self.discard_pile.len() > 0 {
                 file.write_fmt(format_args!(
                     "Top Discard Pile: {}\n",
                     self.discard_pile[self.discard_pile.len() - 1]
-                )).unwrap();
+                ))
+                .unwrap();
             } else {
-                file.write_fmt(format_args!("Top Discard Pile: None\n")).unwrap();
+                file.write_fmt(format_args!("Top Discard Pile: None\n"))
+                    .unwrap();
             }
             let mut i = 0;
             for player in self.players.iter() {
@@ -887,11 +896,17 @@ impl Game {
                 } else {
                     file.write("  ".as_bytes()).unwrap();
                 }
-                file.write_fmt(format_args!("Hand: {}\n", player.hand)).unwrap();
-                file.write_fmt(format_args!("  Board: {}\n\n", player.board.lock().unwrap())).unwrap();
+                file.write_fmt(format_args!("Hand: {}\n", player.hand))
+                    .unwrap();
+                file.write_fmt(format_args!(
+                    "  Board: {}\n\n",
+                    player.board.lock().unwrap()
+                ))
+                .unwrap();
                 i += 1;
             }
-            file.write_fmt(format_args!("Action: {:?} \n\n", play)).unwrap();
+            file.write_fmt(format_args!("Action: {:?} \n\n", play))
+                .unwrap();
         }
         match play {
             Play::GoOut => {
@@ -922,29 +937,64 @@ impl Game {
                 self.finished = true;
                 self.get_curr_player_mut().board.lock().unwrap().went_out = true;
             }
-            Play::PickupPile(subset_wild) => {
+            Play::PickupPile => {
+                let subset_wild = {
+                    if self.get_curr_player().hand.get(Card::Joker) > 0 {
+                        Card::Joker
+                    } else {
+                        Card::Two
+                    }
+                };
                 let wild: Card = Card::from(subset_wild);
                 self.curr_player_drawn = true;
                 let top_card: Card = self.discard_pile[self.discard_pile.len() - 1];
-                if self.get_curr_player().board.lock().unwrap().get(top_card).is_none() || self.frozen {
+                if self
+                    .get_curr_player()
+                    .board
+                    .lock()
+                    .unwrap()
+                    .get(top_card)
+                    .is_none()
+                    || self.frozen
+                {
                     if self.get_curr_player().hand.get(top_card) >= 2 {
                         self.get_curr_player_mut().hand.remove(top_card, 2);
                         knowledge_update[top_card.get_index()] -= 2;
-                        self.get_curr_player_mut().board.lock().unwrap().place_card(top_card, 3);
+                        self.get_curr_player_mut()
+                            .board
+                            .lock()
+                            .unwrap()
+                            .place_card(top_card, 3);
                     } else {
                         self.get_curr_player_mut().hand.remove(top_card, 1);
                         self.get_curr_player_mut().hand.remove(wild, 1);
                         knowledge_update[top_card.get_index()] -= 1;
                         knowledge_update[wild.get_index()] -= 1;
-                        self.get_curr_player_mut().board.lock().unwrap().place_card(top_card, 2);
+                        self.get_curr_player_mut()
+                            .board
+                            .lock()
+                            .unwrap()
+                            .place_card(top_card, 2);
                         if wild == Card::Joker {
-                            self.get_curr_player_mut().board.lock().unwrap().place_joker(top_card);
+                            self.get_curr_player_mut()
+                                .board
+                                .lock()
+                                .unwrap()
+                                .place_joker(top_card);
                         } else {
-                            self.get_curr_player_mut().board.lock().unwrap().place_two(top_card);
+                            self.get_curr_player_mut()
+                                .board
+                                .lock()
+                                .unwrap()
+                                .place_two(top_card);
                         }
                     }
                 } else {
-                    self.get_curr_player_mut().board.lock().unwrap().place_card(top_card, 1);
+                    self.get_curr_player_mut()
+                        .board
+                        .lock()
+                        .unwrap()
+                        .place_card(top_card, 1);
                 }
                 let mut new_cards: Vec<Card> = Vec::new();
                 for card in self.discard_pile.iter() {
@@ -959,15 +1009,30 @@ impl Game {
                 self.frozen = false;
                 self.discard_pile.clear();
             }
-            Play::PlaceWild(subset_card, subset_wild) => {
+            Play::PlaceWild(subset_card) => {
+                let subset_wild = {
+                    if self.get_curr_player().hand.get(Card::Joker) > 0 {
+                        Card::Joker
+                    } else {
+                        Card::Two
+                    }
+                };
                 let card: Card = Card::from(subset_card);
                 let wild: Card = Card::from(subset_wild);
                 self.get_curr_player_mut().hand.remove(wild, 1);
                 knowledge_update[wild.get_index()] -= 1;
                 if wild == Card::Joker {
-                    self.get_curr_player_mut().board.lock().unwrap().place_joker(card);
+                    self.get_curr_player_mut()
+                        .board
+                        .lock()
+                        .unwrap()
+                        .place_joker(card);
                 } else {
-                    self.get_curr_player_mut().board.lock().unwrap().place_two(card);
+                    self.get_curr_player_mut()
+                        .board
+                        .lock()
+                        .unwrap()
+                        .place_two(card);
                 }
             }
             Play::Draw => {
@@ -991,29 +1056,60 @@ impl Game {
             }
             Play::Play(subset_card) => {
                 let card: Card = Card::from(subset_card);
-                if self.get_curr_player().board.lock().unwrap().get(card).is_some() {
-                    self.get_curr_player_mut().board.lock().unwrap().place_card(card, 1);
+                if self
+                    .get_curr_player()
+                    .board
+                    .lock()
+                    .unwrap()
+                    .get(card)
+                    .is_some()
+                {
+                    self.get_curr_player_mut()
+                        .board
+                        .lock()
+                        .unwrap()
+                        .place_card(card, 1);
                     self.get_curr_player_mut().hand.remove(card, 1);
                     knowledge_update[card.get_index()] -= 1;
                 } else {
                     if self.get_curr_player().hand.get(card) >= 3 {
                         self.get_curr_player_mut().hand.remove(card, 3);
                         knowledge_update[card.get_index()] -= 3;
-                        self.get_curr_player_mut().board.lock().unwrap().place_card(card, 3);
+                        self.get_curr_player_mut()
+                            .board
+                            .lock()
+                            .unwrap()
+                            .place_card(card, 3);
                     } else {
                         if self.get_curr_player().hand.get(Card::Joker) >= 1 {
                             self.get_curr_player_mut().hand.remove(Card::Joker, 1);
-                            self.get_curr_player_mut().board.lock().unwrap().place_joker(card);
+                            self.get_curr_player_mut()
+                                .board
+                                .lock()
+                                .unwrap()
+                                .place_joker(card);
                             knowledge_update[Card::Joker.get_index()] -= 1;
                             self.get_curr_player_mut().hand.remove(card, 2);
-                            self.get_curr_player_mut().board.lock().unwrap().place_card(card, 2);
+                            self.get_curr_player_mut()
+                                .board
+                                .lock()
+                                .unwrap()
+                                .place_card(card, 2);
                             knowledge_update[card.get_index()] -= 2;
                         } else if self.get_curr_player().hand.get(Card::Two) >= 1 {
                             self.get_curr_player_mut().hand.remove(Card::Two, 1);
-                            self.get_curr_player_mut().board.lock().unwrap().place_two(card);
+                            self.get_curr_player_mut()
+                                .board
+                                .lock()
+                                .unwrap()
+                                .place_two(card);
                             knowledge_update[Card::Two.get_index()] -= 1;
                             self.get_curr_player_mut().hand.remove(card, 2);
-                            self.get_curr_player_mut().board.lock().unwrap().place_card(card, 2);
+                            self.get_curr_player_mut()
+                                .board
+                                .lock()
+                                .unwrap()
+                                .place_card(card, 2);
                             knowledge_update[card.get_index()] -= 2;
                         } else {
                             panic!("Tried to play a card that a player didn't have");
@@ -1062,9 +1158,11 @@ impl State for GameState<1, 2> {
     type A = Action;
     fn reward(&self) -> f64 {
         if self.game.finished {
-            let mut out = self.game.get_scores()[self.game.turn.get() as usize] as f64;
-            for i in 1..self.game.teams_count {
-                out -= self.game.get_scores()[i as usize] as f64;
+            let mut out = self.game.get_scores()[((self.game.turn.get() + 1) % 2) as usize] as f64;
+            for i in 0..self.game.teams_count {
+                if (i + 1) % 2 != self.game.turn.get() {
+                    out -= self.game.get_scores()[i as usize] as f64;
+                }
             }
             return out;
         }
@@ -1085,9 +1183,11 @@ impl State for GameState<2, 2> {
     type A = Action;
     fn reward(&self) -> f64 {
         if self.game.finished {
-            let mut out = self.game.get_scores()[self.game.turn.get() as usize] as f64;
-            for i in 1..self.game.teams_count {
-                out -= self.game.get_scores()[i as usize] as f64;
+            let mut out = self.game.get_scores()[((self.game.turn.get() + 3) % 4) as usize] as f64;
+            for i in 0..self.game.teams_count {
+                if (i + 1) % 4 != self.game.turn.get() {
+                    out -= self.game.get_scores()[i as usize] as f64;
+                }
             }
             return out;
         }
@@ -1136,13 +1236,21 @@ impl From<GameState<1, 2>> for [f32; 160] {
         for i in 0..state.game.teams_count {
             for card in PlayableCardSubset::iterator() {
                 output[43 + (i as usize) * 12 + (Card::from(*card).get_index() as usize) - 3] =
-                    match state.game.players[i as usize].board.lock().unwrap().get(Card::from(*card)) {
+                    match state.game.players[i as usize]
+                        .board
+                        .lock()
+                        .unwrap()
+                        .get(Card::from(*card))
+                    {
                         Some(stack) => stack.get_total_count() as f32,
                         None => 0.0,
                     };
             }
-            output[43 + (i as usize) * 12 + 11] =
-                state.game.players[i as usize].board.lock().unwrap().get_num_canastas() as f32;
+            output[43 + (i as usize) * 12 + 11] = state.game.players[i as usize]
+                .board
+                .lock()
+                .unwrap()
+                .get_num_canastas() as f32;
         }
         let mut curr: usize = 55 + ((state.game.teams_count * 12) as usize);
         //Hand Sizes
@@ -1193,13 +1301,21 @@ impl From<GameState<2, 2>> for [f32; 190] {
         for i in 0..state.game.teams_count {
             for card in PlayableCardSubset::iterator() {
                 output[43 + (i as usize) * 12 + (Card::from(*card).get_index() as usize) - 3] =
-                    match state.game.players[i as usize].board.lock().unwrap().get(Card::from(*card)) {
+                    match state.game.players[i as usize]
+                        .board
+                        .lock()
+                        .unwrap()
+                        .get(Card::from(*card))
+                    {
                         Some(stack) => stack.get_total_count() as f32,
                         None => 0.0,
                     };
             }
-            output[43 + (i as usize) * 12 + 11] =
-                state.game.players[i as usize].board.lock().unwrap().get_num_canastas() as f32;
+            output[43 + (i as usize) * 12 + 11] = state.game.players[i as usize]
+                .board
+                .lock()
+                .unwrap()
+                .get_num_canastas() as f32;
         }
         let mut curr: usize = 55 + ((state.game.teams_count * 12) as usize);
         //Hand Sizes
@@ -1293,9 +1409,9 @@ impl Agent<GameState<2, 2>> for CanastaAgent<2, 2> {
     }
 }
 
-impl From<Action> for [f32; 51] {
+impl From<Action> for [f32; 39] {
     fn from(val: Action) -> Self {
-        let mut output: [f32; 51] = [0.0; 51];
+        let mut output: [f32; 39] = [0.0; 39];
         match val.play {
             Play::Discard(Card::Joker) => output[0] = 1.0,
             Play::Discard(Card::Two) => output[1] = 1.0,
@@ -1312,49 +1428,37 @@ impl From<Action> for [f32; 51] {
             Play::Discard(Card::King) => output[12] = 1.0,
             Play::Discard(Card::Ace) => output[13] = 1.0,
             Play::Draw => output[14] = 1.0,
-            Play::PickupPile(WildCardSubset::Joker) => output[15] = 1.0,
-            Play::PickupPile(WildCardSubset::Two) => output[16] = 1.0,
-            Play::GoOut => output[17] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Four, WildCardSubset::Joker) => output[18] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Five, WildCardSubset::Joker) => output[19] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Six, WildCardSubset::Joker) => output[20] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Seven, WildCardSubset::Joker) => output[21] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Eight, WildCardSubset::Joker) => output[22] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Nine, WildCardSubset::Joker) => output[23] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Ten, WildCardSubset::Joker) => output[24] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Jack, WildCardSubset::Joker) => output[25] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Queen, WildCardSubset::Joker) => output[26] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::King, WildCardSubset::Joker) => output[27] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Ace, WildCardSubset::Joker) => output[28] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Four, WildCardSubset::Two) => output[29] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Five, WildCardSubset::Two) => output[30] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Six, WildCardSubset::Two) => output[31] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Seven, WildCardSubset::Two) => output[32] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Eight, WildCardSubset::Two) => output[33] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Nine, WildCardSubset::Two) => output[34] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Ten, WildCardSubset::Two) => output[35] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Jack, WildCardSubset::Two) => output[36] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Queen, WildCardSubset::Two) => output[37] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::King, WildCardSubset::Two) => output[38] = 1.0,
-            Play::PlaceWild(PlayableCardSubset::Ace, WildCardSubset::Two) => output[39] = 1.0,
-            Play::Play(PlayableCardSubset::Four) => output[40] = 1.0,
-            Play::Play(PlayableCardSubset::Five) => output[41] = 1.0,
-            Play::Play(PlayableCardSubset::Six) => output[42] = 1.0,
-            Play::Play(PlayableCardSubset::Seven) => output[43] = 1.0,
-            Play::Play(PlayableCardSubset::Eight) => output[44] = 1.0,
-            Play::Play(PlayableCardSubset::Nine) => output[45] = 1.0,
-            Play::Play(PlayableCardSubset::Ten) => output[46] = 1.0,
-            Play::Play(PlayableCardSubset::Jack) => output[47] = 1.0,
-            Play::Play(PlayableCardSubset::Queen) => output[48] = 1.0,
-            Play::Play(PlayableCardSubset::King) => output[49] = 1.0,
-            Play::Play(PlayableCardSubset::Ace) => output[50] = 1.0,
+            Play::PickupPile => output[15] = 1.0,
+            Play::GoOut => output[16] = 1.0,
+            Play::PlaceWild(PlayableCardSubset::Four) => output[17] = 1.0,
+            Play::PlaceWild(PlayableCardSubset::Five) => output[18] = 1.0,
+            Play::PlaceWild(PlayableCardSubset::Six) => output[19] = 1.0,
+            Play::PlaceWild(PlayableCardSubset::Seven) => output[20] = 1.0,
+            Play::PlaceWild(PlayableCardSubset::Eight) => output[21] = 1.0,
+            Play::PlaceWild(PlayableCardSubset::Nine) => output[22] = 1.0,
+            Play::PlaceWild(PlayableCardSubset::Ten) => output[23] = 1.0,
+            Play::PlaceWild(PlayableCardSubset::Jack) => output[24] = 1.0,
+            Play::PlaceWild(PlayableCardSubset::Queen) => output[25] = 1.0,
+            Play::PlaceWild(PlayableCardSubset::King) => output[26] = 1.0,
+            Play::PlaceWild(PlayableCardSubset::Ace) => output[27] = 1.0,
+            Play::Play(PlayableCardSubset::Four) => output[28] = 1.0,
+            Play::Play(PlayableCardSubset::Five) => output[29] = 1.0,
+            Play::Play(PlayableCardSubset::Six) => output[30] = 1.0,
+            Play::Play(PlayableCardSubset::Seven) => output[31] = 1.0,
+            Play::Play(PlayableCardSubset::Eight) => output[32] = 1.0,
+            Play::Play(PlayableCardSubset::Nine) => output[33] = 1.0,
+            Play::Play(PlayableCardSubset::Ten) => output[34] = 1.0,
+            Play::Play(PlayableCardSubset::Jack) => output[35] = 1.0,
+            Play::Play(PlayableCardSubset::Queen) => output[36] = 1.0,
+            Play::Play(PlayableCardSubset::King) => output[37] = 1.0,
+            Play::Play(PlayableCardSubset::Ace) => output[38] = 1.0,
         }
         output
     }
 }
 
-impl From<[f32; 51]> for Action {
-    fn from(v: [f32; 51]) -> Self {
+impl From<[f32; 39]> for Action {
+    fn from(v: [f32; 39]) -> Self {
         // Find the index of the maximum value
         let max_index = v
             .iter()
@@ -1408,109 +1512,73 @@ impl From<[f32; 51]> for Action {
             },
             14 => Action { play: Play::Draw },
             15 => Action {
-                play: Play::PickupPile(WildCardSubset::Joker),
+                play: Play::PickupPile,
             },
-            16 => Action {
-                play: Play::PickupPile(WildCardSubset::Two),
+            16 => Action { play: Play::GoOut },
+            17 => Action {
+                play: Play::PlaceWild(PlayableCardSubset::Four),
             },
-            17 => Action { play: Play::GoOut },
             18 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Four, WildCardSubset::Joker),
+                play: Play::PlaceWild(PlayableCardSubset::Five),
             },
             19 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Five, WildCardSubset::Joker),
+                play: Play::PlaceWild(PlayableCardSubset::Six),
             },
             20 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Six, WildCardSubset::Joker),
+                play: Play::PlaceWild(PlayableCardSubset::Seven),
             },
             21 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Seven, WildCardSubset::Joker),
+                play: Play::PlaceWild(PlayableCardSubset::Eight),
             },
             22 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Eight, WildCardSubset::Joker),
+                play: Play::PlaceWild(PlayableCardSubset::Nine),
             },
             23 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Nine, WildCardSubset::Joker),
+                play: Play::PlaceWild(PlayableCardSubset::Ten),
             },
             24 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Ten, WildCardSubset::Joker),
+                play: Play::PlaceWild(PlayableCardSubset::Jack),
             },
             25 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Jack, WildCardSubset::Joker),
+                play: Play::PlaceWild(PlayableCardSubset::Queen),
             },
             26 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Queen, WildCardSubset::Joker),
+                play: Play::PlaceWild(PlayableCardSubset::King),
             },
             27 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::King, WildCardSubset::Joker),
+                play: Play::PlaceWild(PlayableCardSubset::Ace),
             },
             28 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Ace, WildCardSubset::Joker),
-            },
-            29 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Four, WildCardSubset::Two),
-            },
-            30 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Five, WildCardSubset::Two),
-            },
-            31 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Six, WildCardSubset::Two),
-            },
-            32 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Seven, WildCardSubset::Two),
-            },
-            33 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Eight, WildCardSubset::Two),
-            },
-            34 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Nine, WildCardSubset::Two),
-            },
-            35 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Ten, WildCardSubset::Two),
-            },
-            36 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Jack, WildCardSubset::Two),
-            },
-            37 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Queen, WildCardSubset::Two),
-            },
-            38 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::King, WildCardSubset::Two),
-            },
-            39 => Action {
-                play: Play::PlaceWild(PlayableCardSubset::Ace, WildCardSubset::Two),
-            },
-            40 => Action {
                 play: Play::Play(PlayableCardSubset::Four),
             },
-            41 => Action {
+            29 => Action {
                 play: Play::Play(PlayableCardSubset::Five),
             },
-            42 => Action {
+            30 => Action {
                 play: Play::Play(PlayableCardSubset::Six),
             },
-            43 => Action {
+            31 => Action {
                 play: Play::Play(PlayableCardSubset::Seven),
             },
-            44 => Action {
+            32 => Action {
                 play: Play::Play(PlayableCardSubset::Eight),
             },
-            45 => Action {
+            33 => Action {
                 play: Play::Play(PlayableCardSubset::Nine),
             },
-            46 => Action {
+            34 => Action {
                 play: Play::Play(PlayableCardSubset::Ten),
             },
-            47 => Action {
+            35 => Action {
                 play: Play::Play(PlayableCardSubset::Jack),
             },
-            48 => Action {
+            36 => Action {
                 play: Play::Play(PlayableCardSubset::Queen),
             },
-            49 => Action {
+            37 => Action {
                 play: Play::Play(PlayableCardSubset::King),
             },
-            50 => Action {
+            38 => Action {
                 play: Play::Play(PlayableCardSubset::Ace),
             },
             _ => panic!("Invalid action index: {}", max_index),

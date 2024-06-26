@@ -1,13 +1,13 @@
 mod canastautil;
 mod dqn;
 
-use std::{fs::OpenOptions, io::Write, fs::File};
-use dfdx::prelude::*;
 use canasta_rl::strategy::terminate::TerminationStrategy;
 use canastautil::GameState;
 use dfdx::nn::ToDevice;
+use dfdx::prelude::*;
 use dqn::QNetworkDevice;
 use rand::seq::SliceRandom;
+use std::{fs::File, fs::OpenOptions, io::Write};
 use std::{
     sync::{Arc, Mutex},
     thread,
@@ -70,21 +70,21 @@ fn training() {
     const TEAMS_COUNT: u8 = 2;
     const DECKS: u8 = 2;
     const HAND_SIZE: u8 = 13;
-    const NUM_EPISODES: u32 = 1000;
-    const ACTION_SIZE : usize = 51;
-    const STATE_SIZE : usize = 190;
-    const INNER_SIZE : usize = 128;
-    const NUM_ENVS : u8 = 1;
+    const NUM_EPISODES: u32 = 5000;
+    const ACTION_SIZE: usize = 39;
+    const STATE_SIZE: usize = 190;
+    const INNER_SIZE: usize = 128;
+    const NUM_ENVS: u8 = 2;
     let mut handles = Vec::new();
     let file = File::create("debug.txt").unwrap();
     drop(file);
-    for env_num in 1..NUM_ENVS+1 {
+    for env_num in 1..NUM_ENVS + 1 {
         let initial_state = Arc::new(Mutex::new(GameState::<PLAYERS_PER_TEAM, TEAMS_COUNT> {
             game: canastautil::Game::new(PLAYERS_PER_TEAM, TEAMS_COUNT, 2, HAND_SIZE),
         }));
-        let done: Arc<Mutex<[bool; (PLAYERS_PER_TEAM * TEAMS_COUNT) as usize]>> = Arc::new(Mutex::new(
-            [false; (PLAYERS_PER_TEAM * TEAMS_COUNT) as usize],
-        ));
+        let done: Arc<Mutex<[bool; (PLAYERS_PER_TEAM * TEAMS_COUNT) as usize]>> = Arc::new(
+            Mutex::new([false; (PLAYERS_PER_TEAM * TEAMS_COUNT) as usize]),
+        );
         for handle_num in 0..PLAYERS_PER_TEAM * TEAMS_COUNT {
             let agent_intial_state = Arc::clone(&initial_state);
             let done_clone = Arc::clone(&done);
@@ -97,9 +97,7 @@ fn training() {
                 >::new(1.0, 0.2);
                 for ep in 1..NUM_EPISODES + 1 {
                     if handle_num == 0 {
-                        let mut file = OpenOptions::new()
-                            .append(true)
-                            .open("debug.txt").unwrap();
+                        let mut file = OpenOptions::new().append(true).open("debug.txt").unwrap();
                         file.write_fmt(format_args!("Ep: {}\n", ep)).unwrap();
                     }
                     let mut agent = canastautil::CanastaAgent {
@@ -131,7 +129,7 @@ fn training() {
                             env_num,
                             ep,
                             state.game.get_scores(),
-                            state.game.turn.total_turns
+                            state.game.turn.total_turns / 4
                         );
                         state.game =
                             canastautil::Game::new(PLAYERS_PER_TEAM, TEAMS_COUNT, DECKS, HAND_SIZE);
@@ -153,14 +151,14 @@ fn training() {
         }
     }
     let dev: Cuda = Default::default();
-    let mut models : Vec<(u8, u8, QNetworkDevice<STATE_SIZE, ACTION_SIZE, INNER_SIZE>)> = Vec::new();
+    let mut models: Vec<(u8, u8, QNetworkDevice<STATE_SIZE, ACTION_SIZE, INNER_SIZE>)> = Vec::new();
     for handle in handles {
         let out = handle.join().unwrap();
         models.push((out.0, out.1, out.2.to_device(&dev)));
     }
 }
 
-const RUN_TYPE : RunType = RunType::Training;
+const RUN_TYPE: RunType = RunType::Training;
 
 fn main() {
     if RUN_TYPE == RunType::Training {
