@@ -14,6 +14,15 @@ extern crate rand;
 
 const DEBUG: bool = false;
 
+pub const ACTION_SIZE: usize = 39;
+pub const STATE_SIZE: usize = 190;
+pub const INNER_SIZE: usize = 128;
+
+pub const PLAYERS_PER_TEAM: u8 = 2;
+pub const TEAMS_COUNT: u8 = 2;
+pub const DECKS: u8 = 2;
+pub const HAND_SIZE: u8 = 13;
+
 //Game: Canasta
 //Util Functions
 //Playing without red threes

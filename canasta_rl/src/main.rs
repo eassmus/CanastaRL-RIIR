@@ -1,5 +1,6 @@
 mod canastautil;
 mod dqn;
+mod model_eval;
 
 use canasta_rl::strategy::terminate::TerminationStrategy;
 use canastautil::GameState;
@@ -13,30 +14,14 @@ use std::{
     thread,
 };
 
-fn play_random_game() -> Vec<i16> {
-    let mut game = canastautil::Game::new(2, 2, 2, 13);
-    let mut possible_plays: Vec<canastautil::Play> = Vec::new();
-    for play in canastautil::Play::iterator() {
-        possible_plays.push(*play);
-    }
-    while !game.finished {
-        //Shuffle PLAYS
-        possible_plays.shuffle(&mut rand::thread_rng());
-        let mut i = 0;
-        while i < possible_plays.len() {
-            let play = possible_plays[i];
-            if game.check_legal(play) {
-                game.execute_play(play);
-                break;
-            }
-            i += 1;
-        }
-        if i == possible_plays.len() {
-            panic!("No legal plays");
-        }
-    }
-    game.get_scores()
-}
+const ACTION_SIZE : usize = canastautil::ACTION_SIZE;
+const STATE_SIZE : usize = canastautil::STATE_SIZE;
+const INNER_SIZE : usize = canastautil::INNER_SIZE;
+
+const PLAYERS_PER_TEAM : u8 = canastautil::PLAYERS_PER_TEAM;
+const TEAMS_COUNT : u8 = canastautil::TEAMS_COUNT;
+const DECKS : u8 = canastautil::DECKS;
+const HAND_SIZE : u8 = canastautil::HAND_SIZE;
 
 pub struct CanastaTerminator {}
 
@@ -66,14 +51,7 @@ enum RunType {
 
 fn training() {
     use canasta_rl::strategy::explore::RandomExploration;
-    const PLAYERS_PER_TEAM: u8 = 2;
-    const TEAMS_COUNT: u8 = 2;
-    const DECKS: u8 = 2;
-    const HAND_SIZE: u8 = 13;
     const NUM_EPISODES: u32 = 100000;
-    const ACTION_SIZE: usize = 39;
-    const STATE_SIZE: usize = 190;
-    const INNER_SIZE: usize = 128;
     const NUM_ENVS: u8 = 6;
     const DEBUG_FILE: bool = false;
     let mut handles = Vec::new();
@@ -91,6 +69,7 @@ fn training() {
             let done_clone = Arc::clone(&done);
             let agentthread = thread::spawn(move || {
                 let mut trainer = dqn::DQNAgentTrainer::<
+
                     GameState<PLAYERS_PER_TEAM, TEAMS_COUNT>,
                     STATE_SIZE,
                     ACTION_SIZE,
@@ -165,6 +144,6 @@ fn main() {
     if RUN_TYPE == RunType::Training {
         training();
     } else if RUN_TYPE == RunType::Testing {
-        play_random_game();
+        model_eval::play_random_game();
     }
 }
