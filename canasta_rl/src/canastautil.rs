@@ -12,7 +12,7 @@ use std::slice::Iter;
 use std::sync::{Arc, Mutex};
 extern crate rand;
 
-const DEBUG: bool = true;
+const DEBUG: bool = false;
 
 //Game: Canasta
 //Util Functions

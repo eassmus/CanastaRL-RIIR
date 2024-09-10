@@ -70,11 +70,12 @@ fn training() {
     const TEAMS_COUNT: u8 = 2;
     const DECKS: u8 = 2;
     const HAND_SIZE: u8 = 13;
-    const NUM_EPISODES: u32 = 5000;
+    const NUM_EPISODES: u32 = 100000;
     const ACTION_SIZE: usize = 39;
     const STATE_SIZE: usize = 190;
     const INNER_SIZE: usize = 128;
-    const NUM_ENVS: u8 = 2;
+    const NUM_ENVS: u8 = 6;
+    const DEBUG_FILE: bool = false;
     let mut handles = Vec::new();
     let file = File::create("debug.txt").unwrap();
     drop(file);
@@ -96,7 +97,7 @@ fn training() {
                     INNER_SIZE,
                 >::new(1.0, 0.2);
                 for ep in 1..NUM_EPISODES + 1 {
-                    if handle_num == 0 {
+                    if handle_num == 0 && DEBUG_FILE {
                         let mut file = OpenOptions::new().append(true).open("debug.txt").unwrap();
                         file.write_fmt(format_args!("Ep: {}\n", ep)).unwrap();
                     }
