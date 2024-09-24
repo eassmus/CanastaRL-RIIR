@@ -130,9 +130,17 @@ where
 
     /// Returns the best action for the given `State`, or `None` if no values were learned.
     pub fn best_action(&self, state: &S) -> Option<S::A> {
-        let target = self.expected_value(state);
-
-        Some(target.into())
+        let mut target = self.expected_value(state);
+        //check if each action is legal and if not set it to -inf
+        let mut legal_target = [0f32; ACTION_SIZE];
+        for (i, v) in target.iter_mut().enumerate() {
+            if !state.check_legal(i) {
+                legal_target[i] = -std::f32::INFINITY;
+            } else {
+                legal_target[i] = *v;
+            }
+        }
+        Some(legal_target.into())
     }
 
     #[allow(clippy::boxed_local)]
@@ -227,15 +235,17 @@ where
             let mut dones = [false; BATCH];
 
             let mut s_t_next = agent.current_state();
-
+            
             for i in 0..BATCH {
                 let s_t = agent.current_state().clone();
-                let mut action = exploration_strategy.pick_action(agent);
+                let mut action : S::A = exploration_strategy.pick_action(agent);
+                while !s_t.check_legal_action(action.clone()) { action = exploration_strategy.pick_action(agent); }
                 if rand::thread_rng().gen::<f32>() > 0.1 {
                     action = self.best_action(&s_t).unwrap();
                 }
-
+                agent.take_action(&action);
                 // current action value
+
                 s_t_next = agent.current_state();
                 let r_t_next = s_t_next.reward();
 

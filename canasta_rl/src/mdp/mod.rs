@@ -22,6 +22,8 @@ pub trait State: Eq + Hash + Clone {
         let a_t = rand::random::<usize>() % actions.len();
         actions[a_t].clone()
     }
+    fn check_legal(&self, _play: usize) -> bool;
+    fn check_legal_action(&self, _action: Self::A) -> bool;
 }
 
 /// An `Agent` is something which hold a certain state, and is able to take actions from that
@@ -36,7 +38,6 @@ pub trait Agent<S: State> {
     /// determine the action to be taken.
     fn pick_random_action(&mut self) -> S::A {
         let action = self.current_state().random_action();
-        self.take_action(&action);
         action
     }
 }

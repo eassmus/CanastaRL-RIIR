@@ -692,6 +692,12 @@ pub struct Game {
     curr_player_drawn: bool,
 }
 
+impl std::fmt::Display for Game {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl Game {
     pub fn new(teams_count: u8, players_per_team: u8, decks: u8, hand_size: u8) -> Game {
         let mut draw_pile = DrawPile::new(decks);
@@ -1160,7 +1166,7 @@ pub struct GameState<const PLAYERS_PER_TEAM: u8, const TEAMS_COUNT: u8> {
 }
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub struct Action {
-    play: Play,
+    pub play: Play,
 }
 
 impl State for GameState<1, 2> {
@@ -1186,6 +1192,12 @@ impl State for GameState<1, 2> {
         }
         actions
     }
+    fn check_legal(&self, _play: usize) -> bool {
+        self.game.check_legal(Action::from(_play).play)
+    }
+    fn check_legal_action(&self, _play: Action) -> bool {
+        self.game.check_legal(_play.play)
+    }
 }
 
 impl State for GameState<2, 2> {
@@ -1205,11 +1217,15 @@ impl State for GameState<2, 2> {
     fn actions(&self) -> Vec<Action> {
         let mut actions: Vec<Action> = Vec::new();
         for play in Play::iterator() {
-            if self.game.check_legal(*play) {
-                actions.push(Action { play: *play });
-            }
+            actions.push(Action { play: *play });
         }
         actions
+    }
+    fn check_legal(&self, _play: usize) -> bool {
+        self.game.check_legal(Action::from(_play).play)
+    }
+    fn check_legal_action(&self, _play: Action) -> bool {
+        self.game.check_legal(_play.play)
     }
 }
 
@@ -1345,6 +1361,7 @@ impl From<GameState<2, 2>> for [f32; 190] {
 
 pub struct CanastaAgent<const PLAYERS_PER_TEAM: u8, const TEAMS_COUNT: u8> {
     pub state: Arc<Mutex<GameState<PLAYERS_PER_TEAM, TEAMS_COUNT>>>,
+
     pub player_id: u8,
 }
 impl Agent<GameState<1, 2>> for CanastaAgent<1, 2> {
@@ -1414,7 +1431,191 @@ impl Agent<GameState<2, 2>> for CanastaAgent<2, 2> {
         if state.game.finished {
             return;
         }
+        if DEBUG {
+            println!("Turn: {}", state.game.turn.get());
+            if state.game.discard_pile.len() > 0 {
+                println!(
+                    "Top Discard Pile: {}",
+                    state.game.discard_pile[state.game.discard_pile.len() - 1]
+                );
+            } else {
+                println!("Top Discard Pile: None");
+            }
+            for player in state.game.players.iter() {
+                println!("Hand: {}", player.hand);
+                println!("Board: {}", player.board.lock().unwrap());
+            }
+            println!("Action: {:?}", (*action).play);
+            println!("");
+        }
         state.game.execute_play((*action).play);
+    }
+}
+
+impl From<Action> for usize {
+    fn from(val: Action) -> Self {
+        match val.play {
+            Play::Discard(Card::Joker) => 0,
+            Play::Discard(Card::Two) => 1,
+            Play::Discard(Card::Three) => 2,
+            Play::Discard(Card::Four) => 3,
+            Play::Discard(Card::Five) => 4,
+            Play::Discard(Card::Six) => 5,
+            Play::Discard(Card::Seven) => 6,
+            Play::Discard(Card::Eight) => 7,
+            Play::Discard(Card::Nine) => 8,
+            Play::Discard(Card::Ten) => 9,
+            Play::Discard(Card::Jack) => 10,
+            Play::Discard(Card::Queen) => 11,
+            Play::Discard(Card::King) => 12,
+            Play::Discard(Card::Ace) => 13,
+            Play::Draw => 14,
+            Play::PickupPile => 15,
+            Play::GoOut => 16,
+            Play::PlaceWild(PlayableCardSubset::Four) => 17,
+            Play::PlaceWild(PlayableCardSubset::Five) => 18,
+            Play::PlaceWild(PlayableCardSubset::Six) => 19,
+            Play::PlaceWild(PlayableCardSubset::Seven) => 20,
+            Play::PlaceWild(PlayableCardSubset::Eight) => 21,
+            Play::PlaceWild(PlayableCardSubset::Nine) => 22,
+            Play::PlaceWild(PlayableCardSubset::Ten) => 23,
+            Play::PlaceWild(PlayableCardSubset::Jack) => 24,
+            Play::PlaceWild(PlayableCardSubset::Queen) => 25,
+            Play::PlaceWild(PlayableCardSubset::King) => 26,
+            Play::PlaceWild(PlayableCardSubset::Ace) => 27,
+            Play::Play(PlayableCardSubset::Four) => 28,
+            Play::Play(PlayableCardSubset::Five) => 29,
+            Play::Play(PlayableCardSubset::Six) => 30,
+            Play::Play(PlayableCardSubset::Seven) => 31,
+            Play::Play(PlayableCardSubset::Eight) => 32,
+            Play::Play(PlayableCardSubset::Nine) => 33,
+            Play::Play(PlayableCardSubset::Ten) => 34,
+            Play::Play(PlayableCardSubset::Jack) => 35,
+            Play::Play(PlayableCardSubset::Queen) => 36,
+            Play::Play(PlayableCardSubset::King) => 37,
+            Play::Play(PlayableCardSubset::Ace) => 38,
+        }
+    }
+}
+
+impl From<usize> for Action {
+    fn from(val: usize) -> Self {
+        match val {
+            0 => Action {
+                play: Play::Discard(Card::Joker),
+            },
+            1 => Action {
+                play: Play::Discard(Card::Two),
+            },
+            2 => Action {
+                play: Play::Discard(Card::Three),
+            },
+            3 => Action {
+                play: Play::Discard(Card::Four),
+            },
+            4 => Action {
+                play: Play::Discard(Card::Five),
+            },
+            5 => Action {
+                play: Play::Discard(Card::Six),
+            },
+            6 => Action {
+                play: Play::Discard(Card::Seven),
+            },
+            7 => Action {
+                play: Play::Discard(Card::Eight),
+            },
+            8 => Action {
+                play: Play::Discard(Card::Nine),
+            },
+            9 => Action {
+                play: Play::Discard(Card::Ten),
+            },
+            10 => Action {
+                play: Play::Discard(Card::Jack),
+            },
+            11 => Action {
+                play: Play::Discard(Card::Queen),
+            },
+            12 => Action {
+                play: Play::Discard(Card::King),
+            },
+            13 => Action {
+                play: Play::Discard(Card::Ace),
+            },
+            14 => Action { play: Play::Draw },
+            15 => Action {
+                play: Play::PickupPile,
+            },
+            16 => Action { play: Play::GoOut },
+            17 => Action {
+                play: Play::PlaceWild(PlayableCardSubset::Four),
+            },
+            18 => Action {
+                play: Play::PlaceWild(PlayableCardSubset::Five),
+            },
+            19 => Action {
+                play: Play::PlaceWild(PlayableCardSubset::Six),
+            },
+            20 => Action {
+                play: Play::PlaceWild(PlayableCardSubset::Seven),
+            },
+            21 => Action {
+                play: Play::PlaceWild(PlayableCardSubset::Eight),
+            },
+            22 => Action {
+                play: Play::PlaceWild(PlayableCardSubset::Nine),
+            },
+            23 => Action {
+                play: Play::PlaceWild(PlayableCardSubset::Ten),
+            },
+            24 => Action {
+                play: Play::PlaceWild(PlayableCardSubset::Jack),
+            },
+            25 => Action {
+                play: Play::PlaceWild(PlayableCardSubset::Queen),
+            },
+            26 => Action {
+                play: Play::PlaceWild(PlayableCardSubset::King),
+            },
+            27 => Action {
+                play: Play::PlaceWild(PlayableCardSubset::Ace),
+            },
+            28 => Action {
+                play: Play::Play(PlayableCardSubset::Four),
+            },
+            29 => Action {
+                play: Play::Play(PlayableCardSubset::Five),
+            },
+            30 => Action {
+                play: Play::Play(PlayableCardSubset::Six),
+            },
+            31 => Action {
+                play: Play::Play(PlayableCardSubset::Seven),
+            },
+            32 => Action {
+                play: Play::Play(PlayableCardSubset::Eight),
+            },
+            33 => Action {
+                play: Play::Play(PlayableCardSubset::Nine),
+            },
+            34 => Action {
+                play: Play::Play(PlayableCardSubset::Ten),
+            },
+            35 => Action {
+                play: Play::Play(PlayableCardSubset::Jack),
+            },
+            36 => Action {
+                play: Play::Play(PlayableCardSubset::Queen),
+            },
+            37 => Action {
+                play: Play::Play(PlayableCardSubset::King),
+            },
+            38 => Action {
+                play: Play::Play(PlayableCardSubset::Ace),
+            },
+            _ => panic!("Invalid action index: {}", val),
+        }
     }
 }
 
@@ -1468,15 +1669,15 @@ impl From<Action> for [f32; 39] {
 
 impl From<[f32; 39]> for Action {
     fn from(v: [f32; 39]) -> Self {
-        // Find the index of the maximum value
+        //find max index in v
         let max_index = v
             .iter()
             .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .unwrap()
             .0;
 
-        match max_index {
+        return match max_index {
             0 => Action {
                 play: Play::Discard(Card::Joker),
             },
@@ -1591,6 +1792,6 @@ impl From<[f32; 39]> for Action {
                 play: Play::Play(PlayableCardSubset::Ace),
             },
             _ => panic!("Invalid action index: {}", max_index),
-        }
+        };
     }
 }
